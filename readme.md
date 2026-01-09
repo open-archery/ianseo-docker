@@ -2,7 +2,7 @@
 
 Unofficial Docker setup for IANSEO.
 
-![License](https://img.shields.io/github/license/open-archery/ianseo-docker)
+![Version](https://img.shields.io/github/v/release/open-archery/ianseo-docker) ![License](https://img.shields.io/github/license/open-archery/ianseo-docker)
 
 ## How to use
 
