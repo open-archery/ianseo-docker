@@ -4,7 +4,7 @@ services:
     ports:
       - 80:80
     volumes:
-      - ./ianseo:/var/www/html/
+      - app_data:/var/www/html
 
   db:
     image: mysql:8.4
@@ -22,4 +22,5 @@ services:
       - 8080:8080
 
 volumes:
+  app_data:
   db_data:
