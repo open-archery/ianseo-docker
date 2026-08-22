@@ -21,5 +21,35 @@ services:
     ports:
       - 8080:8080
 
+  backup:
+    image: mysql:8.4
+    depends_on:
+      - db
+    environment:
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-1800}
+      BACKUP_KEEP: ${BACKUP_KEEP:-3}
+      MYSQL_PWD: ianseo
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mysqladmin ping -h db --silent 2>/dev/null; do sleep 2; done
+        while true; do
+          f=/backups/ianseo-$$(date +%Y-%m-%d_%H%M%S).sql.gz
+          # Dump to a temp file first: a piped `mysqldump | gzip` hides mysqldump's
+          # exit status, so a failed dump would be stored as a valid empty backup.
+          if mysqldump -h db -u ianseo --single-transaction --no-tablespaces ianseo > /tmp/dump.sql; then
+            gzip -c /tmp/dump.sql > "$$f.tmp" && mv "$$f.tmp" "$$f"
+          else
+            echo "backup failed" >&2
+            rm -f "$$f.tmp"
+          fi
+          rm -f /tmp/dump.sql
+          ls -1t /backups/ianseo-*.sql.gz 2>/dev/null | tail -n +$$((BACKUP_KEEP + 1)) | xargs -r rm -f
+          sleep "$$BACKUP_INTERVAL"
+        done
+    restart: unless-stopped
+
 volumes:
   db_data:
