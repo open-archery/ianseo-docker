@@ -28,12 +28,16 @@ If you need to access database directly, you can use Adminer. It's available at 
 
 Database dumps land in `./backups` every 30 minutes; the 3 newest are kept.
 Tune with `BACKUP_INTERVAL` (seconds) and `BACKUP_KEEP` in a `.env` file — see `.env.example`.
+Both must be positive integers; the backup service refuses to start otherwise.
+
+Dumps contain the entire database and are written owner-readable only. If the host
+holds personal data, keep `./backups` on an encrypted disk or restrict access to it.
 
 ### Restore
 
     docker compose stop app
     ./restore.sh                                         # newest backup
-    ./restore.sh backups/ianseo-2026-08-22_1700.sql.gz    # a specific one
+    ./restore.sh backups/ianseo-2026-08-22_170000.sql.gz  # a specific one
     docker compose start app
 
 Clean restore (also wipes tables that are not in the dump):
@@ -43,4 +47,5 @@ Clean restore (also wipes tables that are not in the dump):
 
 Manual equivalent, if you prefer no script:
 
-    gunzip -c backups/ianseo-2026-08-22_1700.sql.gz | docker compose exec -T db mysql -u ianseo -pianseo ianseo
+    gunzip -c backups/ianseo-2026-08-22_170000.sql.gz > /tmp/dump.sql
+    docker compose exec -T db mysql -u ianseo -pianseo ianseo < /tmp/dump.sql

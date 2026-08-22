@@ -34,13 +34,23 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        case "$$BACKUP_INTERVAL" in
+          ''|*[!0-9]*|0) echo "BACKUP_INTERVAL must be a positive integer" >&2; exit 1 ;;
+        esac
+        case "$$BACKUP_KEEP" in
+          ''|*[!0-9]*|0) echo "BACKUP_KEEP must be a positive integer" >&2; exit 1 ;;
+        esac
+        # Dumps hold the whole database; keep them readable by their owner only.
+        umask 077
         until mysqladmin ping -h db --silent 2>/dev/null; do sleep 2; done
         while true; do
           f=/backups/ianseo-$$(date +%Y-%m-%d_%H%M%S).sql.gz
           # Dump to a temp file first: a piped `mysqldump | gzip` hides mysqldump's
           # exit status, so a failed dump would be stored as a valid empty backup.
-          if mysqldump -h db -u ianseo --single-transaction --no-tablespaces ianseo > /tmp/dump.sql; then
-            gzip -c /tmp/dump.sql > "$$f.tmp" && mv "$$f.tmp" "$$f"
+          if mysqldump -h db -u ianseo --single-transaction --no-tablespaces ianseo > /tmp/dump.sql &&
+             gzip -c /tmp/dump.sql > "$$f.tmp" &&
+             mv "$$f.tmp" "$$f"; then
+            :
           else
             echo "backup failed" >&2
             rm -f "$$f.tmp"
