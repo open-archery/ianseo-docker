@@ -30,11 +30,14 @@ services:
       - 80:80
     volumes:
       - ianseo_app:/var/www/html/
-      # Modules/Custom is IANSEO's own extension point, the one directory meant to
-      # hold your code. Mounted straight from the host so edits are live, with no
-      # resync: it is small enough that its slower file access does not show up.
-      # Add further live directories in docker-compose.override.yml - see readme.
+      # These two are mounted straight from the host, so edits are live with no
+      # resync. Both are small enough that their slower file access does not show
+      # up; the rest of the tree is what made the bind mount expensive.
+      # Modules/Custom is IANSEO's own extension point, meant to hold your code.
       - ./ianseo/Modules/Custom:/var/www/html/Modules/Custom
+      # Modules/Sets/PL is the Polish rule set (open-archery/ianseo-polish-rules),
+      # developed in place against this setup.
+      - ./ianseo/Modules/Sets/PL:/var/www/html/Modules/Sets/PL
     depends_on:
       ianseo-sync:
         condition: service_completed_successfully

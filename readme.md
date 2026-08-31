@@ -28,18 +28,25 @@ with two exceptions, which are mounted from the host and are live immediately.
 
 ### Live directories
 
-`ianseo/Modules/Custom` is mounted straight from the host. It is IANSEO's own
-extension point, the directory meant to hold your code and survive updates, so
-edits there take effect on the next request with no resync.
+Two directories are mounted straight from the host, so edits there take effect on
+the next request with no resync:
 
-To keep another directory live — a module you develop in place, say — create a
-`docker-compose.override.yml` next to `docker-compose.yml`:
+- `ianseo/Modules/Custom` — IANSEO's own extension point, the directory meant to
+  hold your code and survive updates.
+- `ianseo/Modules/Sets/PL` — the Polish rule set,
+  [open-archery/ianseo-polish-rules](https://github.com/open-archery/ianseo-polish-rules),
+  developed in place against this setup. Clone it over the copy the IANSEO release
+  ships at that path if you work on it; leave it alone and the stock module is
+  served as usual.
+
+To keep another directory live — another rule set you develop in place, say —
+create a `docker-compose.override.yml` next to `docker-compose.yml`:
 
 ```yaml
 services:
   app:
     volumes:
-      - ./ianseo/Modules/Sets/PL:/var/www/html/Modules/Sets/PL
+      - ./ianseo/Modules/Sets/SE:/var/www/html/Modules/Sets/SE
 ```
 
 Compose picks that file up automatically and appends to the mount list. Keep it
