@@ -11,6 +11,49 @@ Unofficial Docker setup for IANSEO.
 3. Run `docker-compose up -d`.
 4. Open `http://localhost` in your browser.
 
+## How the app files are served
+
+The `ianseo` directory is not mounted into the container directly. `docker compose
+up` first copies it into a volume on the container filesystem (about 20 seconds),
+and the app is served from there.
+
+The reason is that IANSEO calls `file_exists()` in loops — one page load makes
+around 220 file syscalls, 64 of them on the same language file. Those are free on
+a native filesystem, but a Docker Desktop bind mount to a Windows or macOS
+directory charges roughly 1 ms per call, which turns a 10 ms page into a 280 ms
+one. Serving from the volume removes that per-call cost.
+
+So after changing anything under `ianseo`, run `docker compose up -d` to resync —
+with two exceptions, which are mounted from the host and are live immediately.
+
+### Live directories
+
+`ianseo/Modules/Custom` is mounted straight from the host. It is IANSEO's own
+extension point, the directory meant to hold your code and survive updates, so
+edits there take effect on the next request with no resync.
+
+To keep another directory live — a module you develop in place, say — create a
+`docker-compose.override.yml` next to `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    volumes:
+      - ./ianseo/Modules/Sets/PL:/var/www/html/Modules/Sets/PL
+```
+
+Compose picks that file up automatically and appends to the mount list. Keep it
+to directories you actually edit: each one pays the bind mount's file access cost
+again, which is invisible for a small module and very much not for the whole tree.
+
+### Consequences
+
+- Files IANSEO writes into its own tree (the `TV/Photos` cache, generated ID cards
+  and scorecards) live in the volume, not in `ianseo`. They are rebuilt from the
+  database, so nothing is lost — but do not look for them on the host.
+- The resync wipes the volume before copying, so a stale file from a previous
+  IANSEO release cannot survive an upgrade.
+
 ## Database connection data
 
 - **Host:** `db`

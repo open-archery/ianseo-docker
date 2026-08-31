@@ -1,10 +1,43 @@
 services:
+  # IANSEO calls file_exists() in loops - a single page load makes ~220 file
+  # syscalls, 64 of them on the same language file. That is free on a native
+  # filesystem but costs ~1.7ms each through a Docker Desktop host bind mount,
+  # turning a 10ms page into a 280ms one. So the app is served from a volume on
+  # the container filesystem, refilled from ./ianseo on every start. ./ianseo
+  # stays the source of truth: drop a new IANSEO release in and `up -d` picks it up.
+  ianseo-sync:
+    image: alpine:3
+    volumes:
+      - ianseo_app:/dst
+      - ./ianseo:/src:ro
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$(ls -A /src 2>/dev/null)" ]; then
+          echo "./ianseo is empty - extract an IANSEO release into it first" >&2
+          exit 1
+        fi
+        # Wipe first, so files dropped by a newer release do not linger.
+        find /dst -mindepth 1 -delete
+        cp -a /src/. /dst/
+        # The app image runs as uid 1000, and IANSEO writes caches into its own tree.
+        chown -R 1000:1000 /dst
+
   app:
     build: .
     ports:
       - 80:80
     volumes:
-      - ./ianseo:/var/www/html/
+      - ianseo_app:/var/www/html/
+      # Modules/Custom is IANSEO's own extension point, the one directory meant to
+      # hold your code. Mounted straight from the host so edits are live, with no
+      # resync: it is small enough that its slower file access does not show up.
+      # Add further live directories in docker-compose.override.yml - see readme.
+      - ./ianseo/Modules/Custom:/var/www/html/Modules/Custom
+    depends_on:
+      ianseo-sync:
+        condition: service_completed_successfully
 
   db:
     image: mysql:8.4
@@ -63,3 +96,4 @@ services:
 
 volumes:
   db_data:
+  ianseo_app:
