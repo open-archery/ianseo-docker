@@ -18,8 +18,12 @@ services:
           echo "./ianseo is empty - extract an IANSEO release into it first" >&2
           exit 1
         fi
-        # Wipe first, so files dropped by a newer release do not linger.
-        find /dst -mindepth 1 -delete
+        # Copy over the top without wiping first. IANSEO writes into its own tree -
+        # HHT score files, tournament exports, the config.inc.php the installer
+        # generates - and those exist only in the volume, so clearing it would
+        # destroy them. A release upgrade overwrites what it ships and leaves the
+        # rest alone, exactly as extracting a release over an existing install does.
+        # To start from a clean tree, delete the volume: see readme.
         cp -a /src/. /dst/
         # The app image runs as uid 1000, and IANSEO writes caches into its own tree.
         chown -R 1000:1000 /dst
