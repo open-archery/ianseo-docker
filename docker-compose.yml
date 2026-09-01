@@ -1,10 +1,50 @@
 services:
+  # IANSEO calls file_exists() in loops - a single page load makes ~220 file
+  # syscalls, 64 of them on the same language file. That is free on a native
+  # filesystem but costs ~1.7ms each through a Docker Desktop host bind mount,
+  # turning a 10ms page into a 280ms one. So the app is served from a volume on
+  # the container filesystem, refilled from ./ianseo on every start. ./ianseo
+  # stays the source of truth: drop a new IANSEO release in and `up -d` picks it up.
+  ianseo-sync:
+    image: alpine:3
+    volumes:
+      - ianseo_app:/dst
+      - ./ianseo:/src:ro
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$(ls -A /src 2>/dev/null)" ]; then
+          echo "./ianseo is empty - extract an IANSEO release into it first" >&2
+          exit 1
+        fi
+        # Copy over the top without wiping first. IANSEO writes into its own tree -
+        # HHT score files, tournament exports, the config.inc.php the installer
+        # generates - and those exist only in the volume, so clearing it would
+        # destroy them. A release upgrade overwrites what it ships and leaves the
+        # rest alone, exactly as extracting a release over an existing install does.
+        # To start from a clean tree, delete the volume: see readme.
+        cp -a /src/. /dst/
+        # The app image runs as uid 1000, and IANSEO writes caches into its own tree.
+        chown -R 1000:1000 /dst
+
   app:
     build: .
     ports:
       - 80:80
     volumes:
-      - ./ianseo:/var/www/html/
+      - ianseo_app:/var/www/html/
+      # These two are mounted straight from the host, so edits are live with no
+      # resync. Both are small enough that their slower file access does not show
+      # up; the rest of the tree is what made the bind mount expensive.
+      # Modules/Custom is IANSEO's own extension point, meant to hold your code.
+      - ./ianseo/Modules/Custom:/var/www/html/Modules/Custom
+      # Modules/Sets/PL is the Polish rule set (open-archery/ianseo-polish-rules),
+      # developed in place against this setup.
+      - ./ianseo/Modules/Sets/PL:/var/www/html/Modules/Sets/PL
+    depends_on:
+      ianseo-sync:
+        condition: service_completed_successfully
 
   db:
     image: mysql:8.4
@@ -63,3 +103,4 @@ services:
 
 volumes:
   db_data:
+  ianseo_app:
