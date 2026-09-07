@@ -23,12 +23,12 @@ a native filesystem, but a Docker Desktop bind mount to a Windows or macOS
 directory charges roughly 1 ms per call, which turns a 10 ms page into a 280 ms
 one. Serving from the volume removes that per-call cost.
 
-The volume is the copy the app actually runs on, and IANSEO writes to it — the
-installer's `config.inc.php`, handheld score files, tournament exports, and every
-file its built-in updater downloads or deletes. So the copy happens **only when
-you ask for it**. Restarting the stack never overwrites what IANSEO has done to
-its own tree, and `docker compose up -d` on a running stack no longer interrupts
-it.
+That first copy is the only one that happens on its own. The volume is what the
+app actually runs on, and IANSEO writes to it — the installer's `config.inc.php`,
+handheld score files, tournament exports, and every file its built-in updater
+downloads or deletes. So after the initial seed, **copying only happens when you
+ask for it**. Restarting the stack never overwrites what IANSEO has done to its
+own tree, and `docker compose up -d` on a running stack no longer interrupts it.
 
 Two commands move files between `ianseo` and the volume:
 

@@ -33,9 +33,12 @@ x-ianseo-copy: &ianseo-copy
       # Over the top, never wiping first: anything IANSEO wrote itself exists only
       # here, so clearing the volume would destroy it.
       cp -a /src/. /dst/
-      date -u +%Y-%m-%dT%H:%M:%SZ > /dst/.ianseo-seeded
       # The app image runs as uid 1000, and IANSEO writes into its own tree.
       chown -R 1000:1000 /dst
+      # Written last, so a copy interrupted before the ownership is fixed is
+      # retried on the next start instead of being taken for a finished one.
+      date -u +%Y-%m-%dT%H:%M:%SZ > /dst/.ianseo-seeded
+      chown 1000:1000 /dst/.ianseo-seeded
       echo "done"
 
 services:
@@ -82,7 +85,10 @@ services:
           echo "./ianseo is empty - refusing, check the mount" >&2
           exit 1
         fi
-        apk add --no-cache rsync >/dev/null
+        if ! apk add --no-cache rsync >/dev/null 2>&1; then
+          echo "could not install rsync - this command needs network access" >&2
+          exit 1
+        fi
         set --
         for d in $$LIVE_DIRS; do set -- "$$@" --exclude="/$$d/"; done
         # Volume bookkeeping, and a tracked file this repository ships.
@@ -98,10 +104,15 @@ services:
           echo "DRY_RUN set - nothing written"
           exit 0
         fi
-        rsync "$$@" /dst/ /src/
-        # Give anything just written the ownership ./ianseo already has, rather
+        # Give what was just written the ownership ./ianseo already has, rather
         # than leaving root-owned files in someone's home directory on Linux.
-        chown -R "$$(stat -c '%u:%g' /src)" /src
+        # Only the transferred paths, so this never walks into an excluded
+        # directory or restats the whole tree across a slow bind mount.
+        rsync "$$@" --out-format='%n' /dst/ /src/ > /tmp/written
+        owner=$$(stat -c '%u:%g' /src)
+        while IFS= read -r p; do
+          [ -n "$$p" ] && [ -e "/src/$$p" ] && chown "$$owner" "/src/$$p"
+        done < /tmp/written
         echo "./ianseo now mirrors the volume"
 
   app:
