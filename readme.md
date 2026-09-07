@@ -7,9 +7,47 @@ Unofficial Docker setup for IANSEO.
 ## How to use
 
 1. Clone this repository.
-2. Download the latest IANSEO release from official website, and extract it to `ianseo` directory.
-3. Run `docker-compose up -d`.
-4. Open `http://localhost` in your browser.
+2. Run `./setup-ianseo.sh` to fetch a packaged IANSEO release into the `ianseo`
+   directory. (Or download one from the official website and extract it there
+   yourself.)
+3. Run `docker compose up -d`.
+4. Open `http://localhost` in your browser and complete the IANSEO installer.
+
+Want the Polish rule set as well? Run `./clone-pl.sh` — it is not part of the
+release and `setup-ianseo.sh` does not fetch it.
+
+### Getting an IANSEO release
+
+    ./setup-ianseo.sh
+
+Downloads the release archive, checks it really is a zip, and unpacks it into
+`ianseo`. Needs `curl` and `unzip`.
+
+It stops if `ianseo` already holds anything other than the `.gitignore` this
+repository ships, so it can never unpack over an existing install — move your
+tree aside first if you want a clean release. `ianseo` is left untouched unless
+the whole thing succeeds: the archive is unpacked into a staging directory and
+moved into place only once that worked.
+
+The archive is checked against a SHA-256 recorded in the script, which catches a
+corrupted download and any later change to the published file. It is a pin, not
+a signature — it says the file is the one that was there when it was pinned.
+A URL you supply yourself is not checked unless you pass `IANSEO_SHA256=`.
+
+The release is about 70 MB and the transfer does fail on some connections. The
+script retries, and keeps whatever arrived in a `.download-*` file so a retry —
+or another run of the script — resumes instead of starting over. If it keeps
+failing, fetch the zip however you like and point the script at your copy:
+
+    IANSEO_URL=file:///path/to/Ianseo_20250210.zip ./setup-ianseo.sh
+
+`IANSEO_URL=` picks a different release, `IANSEO_DIR=` a different target. The
+version it defaults to is pinned in the script; bump it there when a newer
+release comes out.
+
+If the stack has already been started once, the volume was seeded from whatever
+was in `ianseo` at the time, so run `docker compose run --rm ianseo-push` after
+unpacking a new release. See below.
 
 ## How the app files are served
 

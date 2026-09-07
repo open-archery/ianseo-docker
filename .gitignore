@@ -3,6 +3,7 @@
 backups/*
 !backups/.gitkeep
 docker-compose.override.yml
+.download-*
 
 # The IANSEO release tree belongs to IANSEO, not to this repository. ianseo/.gitignore
 # says so from inside the directory, but that file disappears whenever the directory
