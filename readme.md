@@ -53,9 +53,25 @@ the next request with no push:
   hold your code and survive updates.
 - `ianseo/Modules/Sets/PL` — the Polish rule set,
   [open-archery/ianseo-polish-rules](https://github.com/open-archery/ianseo-polish-rules),
-  developed in place against this setup. Clone it over the copy the IANSEO release
-  ships at that path if you work on it; leave it alone and the stock module is
-  served as usual.
+  developed in place against this setup. IANSEO ships no module at that path, so
+  put one there with `./clone-pl.sh` (below).
+
+#### Getting the Polish rule set
+
+    ./clone-pl.sh
+
+Clones `main` into `ianseo/Modules/Sets/PL` over SSH, so the checkout is ready to
+push from. Run it on a fresh setup, and again if an IANSEO update removes the
+module — the updater's file scan skips `Modules/Custom` but not this path.
+
+It never overwrites anything: if the directory already has something in it, the
+script says so and stops. Move your checkout aside first if you really want a
+fresh clone. An empty directory is fine, which is the state Compose leaves behind
+when the stack starts without the module present.
+
+`PL_REPO=` and `PL_DIR=` override the repository and target if you work from a
+fork. The directory is bind-mounted, so the app serves the clone on the next
+request — no restart, and nothing to push into the volume.
 
 To keep another directory live — another rule set you develop in place, say —
 create a `docker-compose.override.yml` next to `docker-compose.yml`:
