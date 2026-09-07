@@ -18,11 +18,22 @@ if [ -d "$PL_DIR" ] && [ -n "$(ls -A "$PL_DIR" 2>/dev/null)" ]; then
 fi
 
 # Compose creates this path as an empty directory when the stack starts without
-# it, and on Linux that leaves it owned by root. git's error for that case is
-# not obvious, so check first.
-if [ -d "$PL_DIR" ] && [ ! -w "$PL_DIR" ]; then
-  echo "$PL_DIR is not writable - Docker probably created it as root."
-  echo "Remove the empty directory and run this again."
+# the module, and on Linux that leaves it owned by root. git's error for that is
+# not obvious, so check first - the nearest existing ancestor, since when the
+# directory itself is missing git needs to create it in the parent.
+writable="$PL_DIR"
+while [ ! -e "$writable" ]; do
+  parent=$(dirname "$writable")
+  [ "$parent" = "$writable" ] && break
+  writable="$parent"
+done
+if [ ! -w "$writable" ]; then
+  echo "$writable is not writable - Docker probably created it as root."
+  if [ "$writable" = "$PL_DIR" ]; then
+    echo "Remove the empty directory and run this again."
+  else
+    echo "Fix its ownership and run this again."
+  fi
   exit 1
 fi
 

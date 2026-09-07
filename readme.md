@@ -66,12 +66,20 @@ module — the updater's file scan skips `Modules/Custom` but not this path.
 
 It never overwrites anything: if the directory already has something in it, the
 script says so and stops. Move your checkout aside first if you really want a
-fresh clone. An empty directory is fine, which is the state Compose leaves behind
-when the stack starts without the module present.
+fresh clone.
 
-`PL_REPO=` and `PL_DIR=` override the repository and target if you work from a
-fork. The directory is bind-mounted, so the app serves the clone on the next
-request — no restart, and nothing to push into the volume.
+An empty directory is fine — that is what Compose leaves behind when the stack
+starts without the module present — as long as you can write to it. On Linux
+Compose creates it as root, in which case remove the empty directory and run the
+script again.
+
+`PL_REPO=` points at a fork. `PL_DIR=` changes where the clone lands, but the app
+only serves what `docker-compose.yml` mounts, so a different path needs a
+matching `docker-compose.override.yml` (see above) or the container will carry on
+serving `ianseo/Modules/Sets/PL`.
+
+The directory is bind-mounted, so the app serves the clone on the next request —
+no restart, and nothing to push into the volume.
 
 To keep another directory live — another rule set you develop in place, say —
 create a `docker-compose.override.yml` next to `docker-compose.yml`:
