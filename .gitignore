@@ -3,3 +3,11 @@
 backups/*
 !backups/.gitkeep
 docker-compose.override.yml
+
+# The IANSEO release tree belongs to IANSEO, not to this repository. ianseo/.gitignore
+# says so from inside the directory, but that file disappears whenever the directory
+# is moved or replaced - and then git offers up all ~4700 release files, including the
+# nested Modules/Sets/PL clone, which `git add -A` would record as a bare gitlink.
+# Saying it here as well means losing the inner file costs one line of `git status`.
+/ianseo/*
+!/ianseo/.gitignore
