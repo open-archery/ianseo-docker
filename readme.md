@@ -13,9 +13,9 @@ Unofficial Docker setup for IANSEO.
 
 ## How the app files are served
 
-The `ianseo` directory is not mounted into the container directly. `docker compose
-up` first copies it into a volume on the container filesystem (about 20 seconds),
-and the app is served from there.
+The `ianseo` directory is not mounted into the container directly. On first start
+it is copied into a volume on the container filesystem, and the app is served
+from there.
 
 The reason is that IANSEO calls `file_exists()` in loops — one page load makes
 around 220 file syscalls, 64 of them on the same language file. Those are free on
@@ -23,13 +23,31 @@ a native filesystem, but a Docker Desktop bind mount to a Windows or macOS
 directory charges roughly 1 ms per call, which turns a 10 ms page into a 280 ms
 one. Serving from the volume removes that per-call cost.
 
-So after changing anything under `ianseo`, run `docker compose up -d` to resync —
-with two exceptions, which are mounted from the host and are live immediately.
+That first copy is the only one that happens on its own. The volume is what the
+app actually runs on, and IANSEO writes to it — the installer's `config.inc.php`,
+handheld score files, tournament exports, and every file its built-in updater
+downloads or deletes. So after the initial seed, **copying only happens when you
+ask for it**. Restarting the stack never overwrites what IANSEO has done to its
+own tree, and `docker compose up -d` on a running stack no longer interrupts it.
+
+Two commands move files between `ianseo` and the volume:
+
+| Command | Direction | When |
+|---|---|---|
+| `docker compose run --rm ianseo-push` | `ianseo` → volume | after extracting a new IANSEO release into `ianseo` |
+| `docker compose run --rm ianseo-export` | volume → `ianseo` | after updating IANSEO from inside the app |
+
+`ianseo-push` copies over the top and never deletes, so it cannot destroy what
+IANSEO wrote. `ianseo-export` mirrors instead — including deletions, because the
+updater removes files too — so after an in-app update, `ianseo` matches what is
+actually being served. It prints what it will change and asks for nothing, so run
+`docker compose run --rm -e DRY_RUN=1 ianseo-export` first if you want to look
+before it writes. It never touches the live directories below.
 
 ### Live directories
 
 Two directories are mounted straight from the host, so edits there take effect on
-the next request with no resync:
+the next request with no push:
 
 - `ianseo/Modules/Custom` — IANSEO's own extension point, the directory meant to
   hold your code and survive updates.
@@ -65,25 +83,33 @@ rather than in `ianseo`. Some of it is a cache the database can rebuild — the
 - anything IANSEO's own updater patched, and per-module config such as
   `Modules/Average/conf.php`
 
-So the resync copies over the top and never clears the volume first. A release
-upgrade overwrites the files it ships and leaves everything else alone, which is
-what extracting a release over an existing IANSEO install does anyway.
+Run `docker compose run --rm ianseo-export` to bring all of it onto the host —
+worth doing after an IANSEO update, and worth knowing about before you delete the
+volume. The backup service in this repository dumps the database only; it does
+not cover the volume.
 
-The trade-off is that a file deleted in a newer release lingers. To start from a
-genuinely clean tree, delete the volume and let the next start refill it:
+To start from a genuinely clean tree, delete the volume and let the next start
+refill it from `ianseo`:
 
     docker compose down
     docker volume rm ianseo-docker_ianseo_app
     docker compose up -d
 
-That discards everything in the list above, so export what you need first. It
+That discards everything in the list above, so export first if you need it. It
 does not touch the database — that is a separate volume.
 
-### One more consequence
+### Updating IANSEO from inside the app
 
-`docker compose up -d` on an already-running stack takes the app down for about
-20 seconds while the copy runs. Fine between sessions, not something to do in the
-middle of a tournament.
+IANSEO's own updater (the `Update` page) replaces and deletes files in the tree
+it is served from, which is the volume. That works, and it survives restarts.
+Run `docker compose run --rm ianseo-export` afterwards so `ianseo` on the host
+matches.
+
+One thing to know first: the updater's file scan skips `Modules/Custom`, but it
+does **not** skip `Modules/Sets/PL`. That directory is mounted from the host, so
+an update can rewrite or delete files inside your working copy of it. It is a git
+repository, so `git status` will show what happened and `git checkout` will undo
+it — but commit or stash before you run an update.
 
 ## Database connection data
 

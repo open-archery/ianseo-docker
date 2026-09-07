@@ -1,32 +1,119 @@
+# IANSEO calls file_exists() in loops - a single page load makes ~220 file
+# syscalls, 64 of them on the same language file. That is free on a native
+# filesystem but costs ~1.7ms each through a Docker Desktop host bind mount,
+# turning a 10ms page into a 280ms one. So the app is served from a volume on the
+# container filesystem, and that volume - not ./ianseo - is what the running app
+# reads and writes. IANSEO writes into its own tree: the installer's
+# config.inc.php, HHT score files, tournament exports, and the files its built-in
+# updater downloads. Copying ./ianseo over the volume on every start would revert
+# all of that, so the copy happens only when asked. See readme.
+x-ianseo-copy: &ianseo-copy
+  image: alpine:3
+  volumes:
+    - ianseo_app:/dst
+    - ./ianseo:/src:ro
+  command:
+    - /bin/sh
+    - -c
+    - |
+      set -e
+      if [ -z "$$(ls -A /src 2>/dev/null)" ]; then
+        echo "./ianseo is empty - extract an IANSEO release into it first" >&2
+        exit 1
+      fi
+      # The sentinel marks a finished copy. Testing it rather than "is /dst empty"
+      # means an interrupted copy is retried instead of being mistaken for a
+      # complete tree.
+      if [ -z "$$FORCE" ] && [ -f /dst/.ianseo-seeded ]; then
+        echo "volume already holds an IANSEO tree - leaving it alone"
+        echo "(docker compose run --rm ianseo-push to copy ./ianseo in)"
+        exit 0
+      fi
+      echo "copying ./ianseo into the volume..."
+      # Over the top, never wiping first: anything IANSEO wrote itself exists only
+      # here, so clearing the volume would destroy it.
+      cp -a /src/. /dst/
+      # The app image runs as uid 1000, and IANSEO writes into its own tree.
+      chown -R 1000:1000 /dst
+      # Written last, so a copy interrupted before the ownership is fixed is
+      # retried on the next start instead of being taken for a finished one.
+      date -u +%Y-%m-%dT%H:%M:%SZ > /dst/.ianseo-seeded
+      chown 1000:1000 /dst/.ianseo-seeded
+      echo "done"
+
 services:
-  # IANSEO calls file_exists() in loops - a single page load makes ~220 file
-  # syscalls, 64 of them on the same language file. That is free on a native
-  # filesystem but costs ~1.7ms each through a Docker Desktop host bind mount,
-  # turning a 10ms page into a 280ms one. So the app is served from a volume on
-  # the container filesystem, refilled from ./ianseo on every start. ./ianseo
-  # stays the source of truth: drop a new IANSEO release in and `up -d` picks it up.
+  # Seeds the volume on first start, then no-ops. `app` waits for it, so a failed
+  # seed keeps the app from starting on an empty document root.
   ianseo-sync:
+    <<: *ianseo-copy
+
+  # Same copy, forced: run this after extracting a new IANSEO release into
+  # ./ianseo. Not started by `up` - `docker compose run --rm ianseo-push`.
+  ianseo-push:
+    <<: *ianseo-copy
+    profiles: [tools]
+    environment:
+      FORCE: "1"
+
+  # The other direction: make ./ianseo match the volume, so that what IANSEO's
+  # own updater did to the served tree ends up on the host. Deletions are
+  # mirrored, which is the point - the updater removes files too - and which is
+  # also why this one is careful about what it is allowed to touch.
+  ianseo-export:
+    profiles: [tools]
     image: alpine:3
     volumes:
       - ianseo_app:/dst
-      - ./ianseo:/src:ro
+      - ./ianseo:/src
+    environment:
+      # Mounted into the app from the host, so the host owns them and the volume's
+      # stale copies must never be written back over them. Keep this in step with
+      # the bind mounts on the app service below.
+      LIVE_DIRS: "Modules/Custom Modules/Sets/PL"
     command:
       - /bin/sh
       - -c
       - |
-        if [ -z "$$(ls -A /src 2>/dev/null)" ]; then
-          echo "./ianseo is empty - extract an IANSEO release into it first" >&2
+        set -e
+        # Without this guard an unseeded volume would mirror an empty tree onto
+        # ./ianseo and --delete would empty the directory.
+        if [ ! -f /dst/.ianseo-seeded ]; then
+          echo "the volume holds no IANSEO tree - refusing to mirror it onto ./ianseo" >&2
           exit 1
         fi
-        # Copy over the top without wiping first. IANSEO writes into its own tree -
-        # HHT score files, tournament exports, the config.inc.php the installer
-        # generates - and those exist only in the volume, so clearing it would
-        # destroy them. A release upgrade overwrites what it ships and leaves the
-        # rest alone, exactly as extracting a release over an existing install does.
-        # To start from a clean tree, delete the volume: see readme.
-        cp -a /src/. /dst/
-        # The app image runs as uid 1000, and IANSEO writes caches into its own tree.
-        chown -R 1000:1000 /dst
+        if [ -z "$$(ls -A /src 2>/dev/null)" ]; then
+          echo "./ianseo is empty - refusing, check the mount" >&2
+          exit 1
+        fi
+        if ! apk add --no-cache rsync >/dev/null 2>&1; then
+          echo "could not install rsync - this command needs network access" >&2
+          exit 1
+        fi
+        set --
+        for d in $$LIVE_DIRS; do set -- "$$@" --exclude="/$$d/"; done
+        # Volume bookkeeping, and a tracked file this repository ships.
+        set -- "$$@" --exclude=/.ianseo-seeded --exclude=/.gitignore
+        # --no-owner/--no-group: the volume is owned by uid 1000 and ./ianseo by
+        # whoever checked it out, so syncing ownership would mark every single
+        # file as changed and bury the deletions this preview exists to show.
+        set -- "$$@" -a --delete --no-owner --no-group
+        echo "--- what this would change in ./ianseo ---"
+        rsync "$$@" --itemize-changes --dry-run /dst/ /src/
+        echo "------------------------------------------"
+        if [ -n "$$DRY_RUN" ]; then
+          echo "DRY_RUN set - nothing written"
+          exit 0
+        fi
+        # Give what was just written the ownership ./ianseo already has, rather
+        # than leaving root-owned files in someone's home directory on Linux.
+        # Only the transferred paths, so this never walks into an excluded
+        # directory or restats the whole tree across a slow bind mount.
+        rsync "$$@" --out-format='%n' /dst/ /src/ > /tmp/written
+        owner=$$(stat -c '%u:%g' /src)
+        while IFS= read -r p; do
+          [ -n "$$p" ] && [ -e "/src/$$p" ] && chown "$$owner" "/src/$$p"
+        done < /tmp/written
+        echo "./ianseo now mirrors the volume"
 
   app:
     build: .
