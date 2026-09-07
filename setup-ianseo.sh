@@ -4,8 +4,23 @@
 # Override with IANSEO_URL= / IANSEO_DIR= for another release or target.
 set -eu
 
-IANSEO_URL="${IANSEO_URL:-https://www.ianseo.net/Release/Ianseo_20250210.zip}"
+DEFAULT_URL="https://www.ianseo.net/Release/Ianseo_20250210.zip"
+# SHA-256 of the release at DEFAULT_URL. Recorded when it was added here, so it
+# catches a corrupted download and any later change to the published file - not
+# a signature, and no help if the file was already wrong when it was pinned.
+# Update both lines together when moving to a newer release.
+DEFAULT_SHA256="a70a4acc1aebb1f9d01860e5e5dc15bcc949cf4488f1c44f72cc1a57d528f341"
+
+IANSEO_URL="${IANSEO_URL:-$DEFAULT_URL}"
 IANSEO_DIR="${IANSEO_DIR:-ianseo}"
+# Checked against the download. Defaults to the pin above for the release this
+# script ships with, and to nothing for a URL the caller chose - pass
+# IANSEO_SHA256= to check one of those too.
+if [ "$IANSEO_URL" = "$DEFAULT_URL" ]; then
+  IANSEO_SHA256="${IANSEO_SHA256:-$DEFAULT_SHA256}"
+else
+  IANSEO_SHA256="${IANSEO_SHA256:-}"
+fi
 # Extra curl flags for a connection that needs coaxing; see the failure message
 # below. Defaulted because `set -u` would otherwise abort on the unset name.
 CURL_OPTS="${CURL_OPTS:-}"
@@ -14,17 +29,27 @@ for tool in curl unzip; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required but not installed."; exit 1; }
 done
 
+# sha256sum on Linux, shasum on macOS. Prints the digest, or nothing if neither
+# is available.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
 # Anything already there stops us, so this can never unpack over an existing
 # install. The placeholder this repository ships does not count as content.
-if [ -d "$IANSEO_DIR" ]; then
-  contents=$(ls -A "$IANSEO_DIR" 2>/dev/null | grep -vxF -e '.gitignore' -e '.gitkeep' || true)
-  if [ -n "$contents" ]; then
-    echo "$IANSEO_DIR already has something in it:"
-    echo "$contents" | head -n 5 | sed 's/^/  /'
-    [ "$(echo "$contents" | wc -l)" -gt 5 ] && echo "  ..."
-    echo "Move it aside first if you want a fresh release. Nothing was changed."
-    exit 1
-  fi
+# `find -print -quit` rather than parsing ls, so a newline in a filename cannot
+# masquerade as two allowed entries.
+if [ -d "$IANSEO_DIR" ] && [ -n "$(find "$IANSEO_DIR" -mindepth 1 -maxdepth 1 \
+     ! -name '.gitignore' ! -name '.gitkeep' -print -quit 2>/dev/null)" ]; then
+  echo "$IANSEO_DIR already has something in it:"
+  find "$IANSEO_DIR" -mindepth 1 -maxdepth 1 ! -name '.gitignore' ! -name '.gitkeep' \
+    -exec basename {} \; 2>/dev/null | head -n 5 | sed 's/^/  /'
+  echo "Move it aside first if you want a fresh release. Nothing was changed."
+  exit 1
 fi
 
 # Check the nearest existing ancestor: when the directory does not exist yet it
@@ -60,8 +85,13 @@ stalled=0
 ok=""
 while [ "$n" -lt "$attempts" ]; do
   before=$(size_of "$part")
+  # The timeouts come before $CURL_OPTS so a caller can override them. Without
+  # them a connection that goes quiet without closing would hang here for good:
+  # the loop below only counts an attempt once curl has exited.
   # shellcheck disable=SC2086
-  if curl -fL --http1.1 --progress-bar -C - -o "$part" $CURL_OPTS "$IANSEO_URL"; then
+  if curl -fL --http1.1 --progress-bar -C - -o "$part" \
+       --connect-timeout 30 --speed-limit 1024 --speed-time 30 \
+       $CURL_OPTS "$IANSEO_URL"; then
     ok=1
     break
   fi
@@ -113,11 +143,35 @@ if ! unzip -tq "$part" >/dev/null 2>&1; then
   exit 1
 fi
 
-tmp="$part"
-trap 'rm -f "$tmp"' EXIT
+if [ -n "$IANSEO_SHA256" ]; then
+  got=$(sha256_of "$part")
+  if [ -z "$got" ]; then
+    echo "warning: no sha256sum or shasum available, cannot check the archive." >&2
+  elif [ "$got" != "$IANSEO_SHA256" ]; then
+    rm -f "$part"
+    echo "the archive does not match the expected SHA-256 - discarded it."
+    echo "  expected $IANSEO_SHA256"
+    echo "  got      $got"
+    echo "Either the published release changed, or the download was tampered with."
+    exit 1
+  fi
+fi
+
+staging="$IANSEO_DIR.unpacking.$$"
+# Unpack into a staging directory and move it into place afterwards. Unzipping
+# straight into the target would, on a failure part-way, leave a half-release
+# there - which the guard above would then read as an existing install and
+# refuse to touch on the next run.
+trap 'rm -rf "$staging"' EXIT
+rm -rf "$staging"
+mkdir -p "$staging"
+unzip -q "$part" -d "$staging"
 
 mkdir -p "$IANSEO_DIR"
-unzip -q "$tmp" -d "$IANSEO_DIR"
+find "$staging" -mindepth 1 -maxdepth 1 -exec mv {} "$IANSEO_DIR/" \;
+rmdir "$staging"
+rm -f "$part"
+trap - EXIT
 
 echo
 echo "unpacked into $IANSEO_DIR ($(ls -A "$IANSEO_DIR" | wc -l | tr -d ' ') entries)"

@@ -25,8 +25,14 @@ Downloads the release archive, checks it really is a zip, and unpacks it into
 
 It stops if `ianseo` already holds anything other than the `.gitignore` this
 repository ships, so it can never unpack over an existing install — move your
-tree aside first if you want a clean release. A failed download or a corrupt
-archive leaves nothing behind.
+tree aside first if you want a clean release. `ianseo` is left untouched unless
+the whole thing succeeds: the archive is unpacked into a staging directory and
+moved into place only once that worked.
+
+The archive is checked against a SHA-256 recorded in the script, which catches a
+corrupted download and any later change to the published file. It is a pin, not
+a signature — it says the file is the one that was there when it was pinned.
+A URL you supply yourself is not checked unless you pass `IANSEO_SHA256=`.
 
 The release is about 70 MB and the transfer does fail on some connections. The
 script retries, and keeps whatever arrived in a `.download-*` file so a retry —
