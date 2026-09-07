@@ -28,6 +28,13 @@ repository ships, so it can never unpack over an existing install — move your
 tree aside first if you want a clean release. A failed download or a corrupt
 archive leaves nothing behind.
 
+The release is about 70 MB and the transfer does fail on some connections. The
+script retries, and keeps whatever arrived in a `.download-*` file so a retry —
+or another run of the script — resumes instead of starting over. If it keeps
+failing, fetch the zip however you like and point the script at your copy:
+
+    IANSEO_URL=file:///path/to/Ianseo_20250210.zip ./setup-ianseo.sh
+
 `IANSEO_URL=` picks a different release, `IANSEO_DIR=` a different target. The
 version it defaults to is pinned in the script; bump it there when a newer
 release comes out.

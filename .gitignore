@@ -3,3 +3,4 @@
 backups/*
 !backups/.gitkeep
 docker-compose.override.yml
+.download-*

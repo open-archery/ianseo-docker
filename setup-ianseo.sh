@@ -39,14 +39,38 @@ if [ ! -w "$writable" ]; then
   exit 1
 fi
 
-# Download in full and verify before unpacking, so a truncated transfer cannot
-# leave half a release behind.
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
+# The release is ~70MB and the transfer does fall over on some connections
+# (TLS record errors part-way through, for one). The server sends
+# Accept-Ranges: bytes, so keep the partial download under a name derived from
+# the URL and resume into it: retries within this run continue where they left
+# off, and so does running the script again.
+part=".download-$(basename "$IANSEO_URL")"
+
+# --retry-all-errors is what makes curl retry a mid-transfer TLS failure rather
+# than give up, but it only exists in curl 7.71 and later.
+retry="--retry 5 --retry-delay 2"
+curl --help all 2>/dev/null | grep -q -- '--retry-all-errors' && retry="$retry --retry-all-errors"
 
 echo "Downloading $IANSEO_URL"
-curl -fL --progress-bar -o "$tmp" "$IANSEO_URL"
-unzip -tq "$tmp" >/dev/null 2>&1 || { echo "the download is not a valid zip archive."; exit 1; }
+if ! curl -fL --progress-bar $retry -C - -o "$part" "$IANSEO_URL"; then
+  echo
+  echo "Download failed. The part that arrived is kept in $part,"
+  echo "so running this again resumes rather than starting over."
+  echo "If it keeps failing, download the zip by hand and point the script at it:"
+  echo "  IANSEO_URL=file:///path/to/$(basename "$IANSEO_URL") ./setup-ianseo.sh"
+  exit 1
+fi
+
+# Verify before unpacking, so a corrupt transfer cannot leave half a release
+# behind. A bad archive is deleted: resuming onto it would never come good.
+if ! unzip -tq "$part" >/dev/null 2>&1; then
+  rm -f "$part"
+  echo "the download is not a valid zip archive - discarded it, try again."
+  exit 1
+fi
+
+tmp="$part"
+trap 'rm -f "$tmp"' EXIT
 
 mkdir -p "$IANSEO_DIR"
 unzip -q "$tmp" -d "$IANSEO_DIR"
